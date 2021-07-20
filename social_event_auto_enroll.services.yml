@@ -1,0 +1,4 @@
+services:
+  social_event_auto_enroll:
+    class: Drupal\social_event_auto_enroll\SocialEventAutoEnrollService
+    arguments: ['@entity_type.manager','@config.factory']

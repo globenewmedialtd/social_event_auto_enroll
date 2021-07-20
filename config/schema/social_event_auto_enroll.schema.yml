@@ -1,0 +1,19 @@
+social_event_auto_enroll.social_event_auto_enroll.*:
+  type: config_entity
+  label: 'Social event auto enroll config'
+  mapping:
+    id:
+      type: string
+      label: 'ID'
+    auto_enroll:
+      type: boolean
+      label: 'Auto Enroll'
+    node:
+      label: 'Node'
+      type: mapping
+      mapping:
+        target_id:
+          type: string
+          label: 'Value'
+    uuid:
+      type: string

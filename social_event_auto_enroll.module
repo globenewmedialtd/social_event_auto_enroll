@@ -8,26 +8,31 @@
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\social_event\Entity\EventEnrollment;
+use Drupal\social_event\EventEnrollmentInterface;
 use Drupal\group\Entity\Group;
 use Drupal\group\Entity\GroupInterface;
 use Drupal\group\Entity\GroupContentInterface;
 use Drupal\group\Entity\GroupContent;
+use Drupal\social_event_auto_enroll\Entity\SocialEventAutoEnroll;
+use Drupal\social_event_auto_enroll\Entity\SocialEventAutoEnrollInterface;
 
+/**
+ * Implements hook_form_alter().
+ */
 function social_event_auto_enroll_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-	
-}
+  // Form alters for the event add and edit forms.
+  if ($form_id === 'node_event_edit_form' || $form_id === 'node_event_form') {
+    
+    $node = $form_state->getformObject()->getEntity();
+    $social_event_auto_enroll = \Drupal::service('social_event_auto_enroll');
+    $auto_enroll = $social_event_auto_enroll->getSocialEventAutoEnrollConfig($node->id());
+    if ($auto_enroll) {
+      $auto_enroll_default = $auto_enroll->getAutoEnroll();      
+    }
 
-
-
-
-function social_event_auto_enroll_form_node_event_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-
-	// Get Current user
-	$account = \Drupal::currentUser();
-
-  // Attach new fieldset
+    // Attach new fieldset
   $form['social_event_auto_enroll'] = [
-    '#type' => 'fieldset',
+    '#type' => 'details',
     '#description' => t("Auto Enroll"),
     '#open' => TRUE,
     '#tree' => TRUE,
@@ -37,57 +42,61 @@ function social_event_auto_enroll_form_node_event_form_alter(&$form, FormStateIn
   $form['social_event_auto_enroll']['enable_auto_enroll'] = [
     '#title' => t('Automatically enrol all group members to this event'),
     '#type' => 'checkbox',
-    '#default_value' => FALSE
-  ];  
-
-  //kint($form['#submit']);
-  //$existing_submit_handlers = $form['#submit'];
-  //array_unshift($existing_submit_handlers, 'social_event_auto_enroll_form_submit');
-  //$form['#submit'] = $existing_submit_handlers;
+    '#default_value' => $auto_enroll_default ? $auto_enroll_default : FALSE,
+  ];
 
   $form['actions']['submit']['#submit'][] = 'social_event_auto_enroll_form_submit';
 
-  //kint($form);
-
-  //kint(array_reverse($form['#submit']));
-
-//kint($form['groups']['widget']['#default_value']);
-
-  // Modification for the form with the given form ID goes here. For example, if
-  // FORM_ID is "user_register_form" this code would run only on the user
-  // registration form.
-  // Add a checkbox to registration form about agreeing to terms of use.
-  //$form['terms_of_use'] = [
-    //'#type' => 'checkbox',
-    //'#title' => t("I agree with the website's terms and conditions."),
-    //'#required' => TRUE,
-  //];
-
+  }
 }
 
 function social_event_auto_enroll_form_submit(array $form, FormStateInterface $form_state) {
 
-  $social_event_auto_enroll = $form_state->getValue('social_event_auto_enroll');
+  $social_event_auto_enroll_value = FALSE;
+  $social_event_auto_enroll_data = $form_state->getValue('social_event_auto_enroll');
+  $node = $form_state->getformObject()->getEntity();
   
   // Set a Drupal state to retrieve the given value later
-  if (isset($social_event_auto_enroll) && is_array($social_event_auto_enroll)) {
-    $social_event_auto_enroll_value = $social_event_auto_enroll['enable_auto_enroll'];
-    \Drupal::state()->set('social_event_auto_enroll', $social_event_auto_enroll_value);
+  if (isset($social_event_auto_enroll_data) && is_array($social_event_auto_enroll_data)) {
+    if ($social_event_auto_enroll_data['enable_auto_enroll'] === 1) {
+      $social_event_auto_enroll_value = TRUE;
+    }
+    
+    $social_event_auto_enroll = \Drupal::service('social_event_auto_enroll');
+    if ($social_event_auto_enroll->getSocialEventAutoEnrollConfig($node->id())) {
+      // Update
+      $update = $social_event_auto_enroll->updateSocialEventAutoEnrollConfig($node->id(), $social_event_auto_enroll_value);
+    }
+    else {
+      // Create
+      $social_event_auto_enroll->createSocialEventAutoEnrollConfig($node->id(), $social_event_auto_enroll_value);
+    }
+
   }
 
 }
 
+
+/*
+ * Implements hook_group_content_insert()
+ */
 function social_event_auto_enroll_group_content_insert(GroupContentInterface $group_content) {
 
   $content_plugin = $group_content->getContentPlugin();
+  $entityTypeManager = \Drupal::entityTypeManager();
 
+  // When an event with auto enroll enabled has been fired
   if ($content_plugin->getPluginId() === 'group_node:event') {
 
     // We want the auto enrollment to happen
     // when auto enroll enabled only!
-    $social_event_auto_enroll = \Drupal::state()->get('social_event_auto_enroll');
+    $nid = $group_content->getEntity()->id();
+    $social_event_auto_enroll = \Drupal::service('social_event_auto_enroll'); 
+    if ($config = $social_event_auto_enroll->getSocialEventAutoEnrollConfig($nid)) {
+      $auto_enroll = $config->auto_enroll;  
+    }
 
-    if ($social_event_auto_enroll === 1) {
+    if ($auto_enroll === TRUE) {
       $event = $group_content->getEntity()->id();    
       $group = $group_content->getGroup();
 
@@ -103,9 +112,33 @@ function social_event_auto_enroll_group_content_insert(GroupContentInterface $gr
         $enrollment->save();    
       }
 
-      // Ensure we set back the state to FALSE
-      \Drupal::state()->set('social_event_auto_enroll', 0);
-
     }
+  } 
+  // If we add new Group Members enroll them when auto enroll enabled
+  if ($content_plugin->getPluginId() === 'group_membership') {
+    $group_id = $group_content->getGroup()->id();
+    $uid = $group_content->getEntity()->id();
+    $social_event_auto_enroll = \Drupal::service('social_event_auto_enroll');
+    $social_event_auto_enroll->newGroupMemberAutoEnroll($group_id, $uid);
   }  
 }
+
+/*
+ * Implements hook_group_content_delete()
+ */
+function social_event_auto_enroll_group_content_delete(GroupContentInterface $group_content) {
+
+  $content_plugin = $group_content->getContentPlugin();
+ 
+  if ($content_plugin->getPluginId() === 'group_membership') {
+    $group_id = $group_content->getGroup()->id();
+    $uid = $group_content->getEntity()->id();
+    $social_event_auto_enroll = \Drupal::service('social_event_auto_enroll');
+    $social_event_auto_enroll->removeAutoEnrollEnabled($group_id, $uid);
+  }
+     
+}
+
+
+
+
