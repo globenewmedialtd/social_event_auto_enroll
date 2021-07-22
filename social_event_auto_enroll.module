@@ -93,7 +93,7 @@ function social_event_auto_enroll_group_content_insert(GroupContentInterface $gr
     $nid = $group_content->getEntity()->id();
     $social_event_auto_enroll = \Drupal::service('social_event_auto_enroll'); 
     if ($config = $social_event_auto_enroll->getSocialEventAutoEnrollConfig($nid)) {
-      $auto_enroll = $config->auto_enroll;  
+      $auto_enroll = $config->getAutoEnroll();  
     }
 
     if ($auto_enroll === TRUE) {
